@@ -2222,11 +2222,17 @@ def _render_docker_training():
 
         with st.expander("How to Start the Backend", expanded=True):
             st.markdown(f"""
-            Run this single command on any machine with Docker and an NVIDIA GPU:
+                        Run these commands on any machine with Docker and an NVIDIA GPU:
             ```bash
-            docker run --gpus all -e USER_ID={user_id or '<your-user-id>'} modelforge/backend:latest
+                        docker pull issandrew/modelforge-backend:latest
+                        mkdir -p models
+                        docker run --gpus all --name modelforge-backend \
+                            -v ./models:/app/models \
+                            -e USER_ID={user_id or '<your-user-id>'} \
+                            issandrew/modelforge-backend:latest
             ```
-            The backend will auto-register via Cloudflare tunnel and appear here within 30 seconds.
+                        The backend will auto-register via Cloudflare tunnel and appear here within 30 seconds.
+                        Mounting `./models` keeps trained models after container restarts.
             """)
             if user_id:
                 st.code(f"Your User ID: {user_id}", language="text")
@@ -3561,6 +3567,88 @@ def render_settings():
             st.rerun()
 
 
+# ==================== VIEW: GUIDE ====================
+
+def render_guide():
+    """Documentation-style usage guide for ModelForge V2."""
+    st.markdown("""
+    <h1 style="color: white; font-size: 2rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em;">
+        USER GUIDE
+    </h1>
+    <p style="color: #8c6b5d; font-size: 0.85rem;">
+        End-to-end instructions for generating data, training models, running inference, and deploying to HuggingFace.
+    </p>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.markdown("### 1) SIGN IN & INITIAL SETUP")
+    st.markdown("""
+    1. Sign in with Google (recommended) or use manual access.
+    2. Open **Settings** and configure:
+       - Backboard API key (required for data generation)
+       - HuggingFace token + username (required for upload to HF)
+       - Backend URL (optional; auto-discovered when backend is running)
+    3. Copy your **User ID** from Settings for backend startup.
+    """)
+
+    st.markdown("### 2) START GPU BACKEND")
+    st.markdown("""
+    Start this on a machine with Docker + NVIDIA GPU:
+    ```bash
+    docker pull issandrew/modelforge-backend:latest
+    mkdir -p models
+    docker run --gpus all --name modelforge-backend \\
+      -v ./models:/app/models \\
+      -e USER_ID=<your-user-id> \\
+      issandrew/modelforge-backend:latest
+    ```
+    - The backend auto-registers and appears in the app.
+    - The `models` folder keeps trained models persistent across restarts.
+    """)
+
+    st.markdown("### 3) GENERATE OR UPLOAD DATA")
+    st.markdown("""
+    - Use **Dashboard** to generate synthetic instruction datasets.
+    - Use **Data** page to review samples and upload your own JSONL/JSON datasets.
+    - Ensure records follow Alpaca-style fields: `instruction`, `input`, `output`.
+    """)
+
+    st.markdown("### 4) TRAIN A MODEL")
+    st.markdown("""
+    - Open **Train** and select the Docker Backend tab.
+    - Choose dataset, base model, and LoRA/training parameters.
+    - Start training and monitor status until completion.
+    - Trained model artifacts are saved under `/app/models` (mapped to your local `models/`).
+    """)
+
+    st.markdown("### 5) RUN INFERENCE")
+    st.markdown("""
+    - Open **Inference**.
+    - Select a trained model from backend.
+    - Send prompts and validate behavior before deployment.
+    """)
+
+    st.markdown("### 6) DEPLOY TO HUGGINGFACE")
+    st.markdown("""
+    - Open **Deploy**.
+    - Select a trained model or dataset.
+    - Push to HuggingFace repository (public or private).
+    - Progress indicators show upload status.
+    """)
+
+    st.markdown("### TROUBLESHOOTING")
+    st.markdown("""
+    - **No backend detected**: verify GPU container is running and `USER_ID` matches your Settings page.
+    - **Uploads disabled**: set HuggingFace token and username in Settings.
+    - **Models disappear after restart**: ensure Docker volume mount is present (`-v ./models:/app/models`).
+    - **Training status timeout**: wait and retry; large jobs may take longer.
+    """)
+
+    st.markdown("---")
+    st.caption("ModelForge V2 Guide — Updated for Docker Hub image: issandrew/modelforge-backend:latest")
+
+
 # ==================== TOP NAVIGATION BAR ====================
 
 def render_top_nav():
@@ -3569,6 +3657,7 @@ def render_top_nav():
 
     nav_items = [
         ("DASHBOARD", "dashboard"),
+        ("GUIDE", "guide"),
         ("DATA", "data_viewer"),
         ("TRAIN", "fine_tuning"),
         ("INFERENCE", "inference"),
@@ -3764,6 +3853,8 @@ def main():
     # --- ROUTE TO VIEW ---
     if st.session_state.view == 'dashboard':
         render_dashboard()
+    elif st.session_state.view == 'guide':
+        render_guide()
     elif st.session_state.view == 'data_generation':
         render_data_generation()
     elif st.session_state.view == 'data_viewer':
