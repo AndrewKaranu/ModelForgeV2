@@ -36,6 +36,36 @@ def get_supabase_client() -> SupabaseClient:
     return create_client(url, key)
 
 
+# ==================== RAM KEY CACHE ====================
+# Persists across Streamlit session refreshes within the same server process.
+# Keyed by user email so multiple users stay isolated.
+
+@st.cache_resource
+def _get_key_store() -> dict:
+    """Returns a process-level dict: { email: { field: value, ... } }"""
+    return {}
+
+def _save_to_ram(email: str, field: str, value):
+    """Write a key/value into the RAM cache for a user."""
+    store = _get_key_store()
+    store.setdefault(email, {})[field] = value
+
+def _load_from_ram(email: str) -> dict:
+    """Read all cached keys for a user. Returns {} if nothing cached."""
+    return _get_key_store().get(email, {})
+
+def _populate_ram_from_profile(profile: dict):
+    """Seed the RAM cache from a Supabase profile dict on login."""
+    email = profile.get("email", "")
+    if not email:
+        return
+    key_fields = ["backboard_api_key", "hf_token", "hf_username"]
+    for f in key_fields:
+        val = profile.get(f)
+        if val:
+            _save_to_ram(email, f, val)
+
+
 def ensure_user_profile(email: str, display_name: str = None) -> dict:
     """Upsert user profile in Supabase. Returns the profile row."""
     sb = get_supabase_client()
@@ -44,6 +74,7 @@ def ensure_user_profile(email: str, display_name: str = None) -> dict:
     if result.data:
         profile = result.data[0]
         st.session_state.user_profile = profile
+        _populate_ram_from_profile(profile)
         return profile
 
     # Create new profile
@@ -54,11 +85,12 @@ def ensure_user_profile(email: str, display_name: str = None) -> dict:
     result = sb.table("profiles").insert(new_profile).execute()
     profile = result.data[0]
     st.session_state.user_profile = profile
+    _populate_ram_from_profile(profile)
     return profile
 
 
 def save_profile_field(field_name: str, value):
-    """Save a single field to the user's Supabase profile."""
+    """Save a single field to the user's Supabase profile AND RAM cache."""
     profile = st.session_state.get("user_profile")
     if not profile:
         return
@@ -68,6 +100,10 @@ def save_profile_field(field_name: str, value):
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", profile["id"]).execute()
     profile[field_name] = value
+    # Also persist to RAM cache so it survives browser refresh
+    email = profile.get("email", "")
+    if email:
+        _save_to_ram(email, field_name, value)
 
 
 def check_backend_connection(user_id: str) -> Optional[str]:
@@ -297,20 +333,30 @@ def load_forge_theme():
 # ==================== SESSION STATE MANAGEMENT ====================
 
 def init_session_state():
-    """Initialize session state variables, restoring from Supabase profile when available."""
+    """Initialize session state variables, restoring from RAM cache > Supabase profile."""
     profile = st.session_state.get("user_profile", {})
+    # RAM cache: survives browser refresh within same server process
+    # Try profile email first, then st.user.email (available via OAuth on refresh)
+    email = profile.get("email", "")
+    if not email:
+        try:
+            email = st.user.email or ""
+        except Exception:
+            email = ""
+    ram = _load_from_ram(email) if email else {}
 
     if 'view' not in st.session_state:
         st.session_state.view = 'dashboard'
 
     if 'api_key' not in st.session_state:
-        # Priority: secrets > Supabase profile > None
+        # Priority: RAM cache > secrets > Supabase profile > None
+        cached = ram.get("backboard_api_key")
         secret_key = None
         try:
             secret_key = st.secrets.get("BACKBOARD_API_KEY", "") or None
         except Exception:
             pass
-        st.session_state.api_key = secret_key or profile.get("backboard_api_key")
+        st.session_state.api_key = cached or secret_key or profile.get("backboard_api_key")
 
     if 'user_logged_in' not in st.session_state:
         st.session_state.user_logged_in = False
@@ -359,11 +405,15 @@ def init_session_state():
     if 'backend_url' not in st.session_state:
         st.session_state.backend_url = ""
 
-    # HuggingFace (from Supabase profile)
+    # HuggingFace (RAM cache > Supabase profile)
     if 'hf_token' not in st.session_state:
-        st.session_state.hf_token = profile.get("hf_token", "") or ""
+        st.session_state.hf_token = ram.get("hf_token") or profile.get("hf_token", "") or ""
     if 'hf_username' not in st.session_state:
-        st.session_state.hf_username = profile.get("hf_username", "") or ""
+        st.session_state.hf_username = ram.get("hf_username") or profile.get("hf_username", "") or ""
+
+    # Backend URL (RAM cache so tunnel URL survives refresh)
+    if 'backend_url' not in st.session_state or not st.session_state.backend_url:
+        st.session_state.backend_url = ram.get("backend_url", "")
 
 
 # ==================== DATASET MANAGEMENT ====================
@@ -3445,6 +3495,10 @@ def render_settings():
     )
     if st.button("SAVE BACKEND URL", type="primary", key="save_backend_url"):
         st.session_state.backend_url = new_backend.strip()
+        # Persist to RAM cache so it survives browser refresh
+        email = st.session_state.get("user_profile", {}).get("email", "")
+        if email:
+            _save_to_ram(email, "backend_url", new_backend.strip())
         st.success("Backend URL saved!")
         st.rerun()
 
@@ -3700,6 +3754,9 @@ def main():
         discovered = check_backend_connection(profile["id"])
         if discovered:
             st.session_state.backend_url = discovered
+            email = profile.get("email", "")
+            if email:
+                _save_to_ram(email, "backend_url", discovered)
 
     # --- TOP NAVIGATION BAR ---
     render_top_nav()
