@@ -1,0 +1,35 @@
+# ModelForge V2 - Cloud Dependencies
+# This is for the Streamlit Cloud frontend ONLY (no torch/unsloth)
+
+# Streamlit UI
+streamlit>=1.42.0
+
+# HTTP requests (backend communication)
+requests
+
+# Data handling
+pandas>=2.0.0
+
+# Backboard.io SDK (2200+ models)
+backboard-sdk>=1.0.0
+
+# Environment management
+python-dotenv>=1.0.0
+
+# HuggingFace Hub (model/dataset uploads)
+huggingface_hub>=0.20.0
+
+# PDF parsing
+PyPDF2>=3.0.0
+
+# Web Search (Perplexity API)
+httpx>=0.25.0
+
+# Utilities
+tqdm>=4.65.0
+
+# OAuth support
+Authlib
+
+# Supabase (profiles, datasets, backend auto-discovery)
+supabase>=2.0.0
